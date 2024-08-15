@@ -64,6 +64,8 @@ chmod 600 ./smtp.credentials
 DOCKER_COMPOSE_FILE=./docker-compose.yml
 cp ./assets/docker-compose-template.yml $DOCKER_COMPOSE_FILE
 
+sed -i "s/\${branch}/$branch/g" $DOCKER_COMPOSE_FILE
+
 # Configure OpenID/Oauth2 Secret
 if [ "$interactive" == "true" ]; then
   read -r -p "Do you want to setup SSO (OpenID Connect/OAuth2) Y/[N] " SETUP_OAUTH2
