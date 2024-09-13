@@ -1,6 +1,7 @@
 services:
   kawa-script-runner:
     image: "registry.gitlab.com/kawa-analytics-dev/kawa-python-server/${branch}"
+    runtime: ${script_runner_runtime}
     secrets:
       - source: runner-aes-key
         target: runner-aes-key
@@ -9,6 +10,9 @@ services:
     environment:
       KAWA_URL: _KAWA_URL_
       KAWA_AUTOMATION_SERVER_AES_KEY_FILE: /run/secrets/runner-aes-key
+    env_file:
+      - path: kawa.script-runner.env
+      - required: false
 
   kawa-server:
     image: "registry.gitlab.com/kawa-analytics-dev/final-build/${branch}"
@@ -26,7 +30,7 @@ services:
       - source: smtp-credentials
         target: smtp-credentials
     ports:
-        - 8080:8080
+      - 8080:8080
     volumes:
       - kawadata:/home/kawa/user-files
     environment:
@@ -42,6 +46,9 @@ services:
       KAWA_MASTER_KEY_FILE: /run/secrets/kawa-master-key
       KAWA_CLICKHOUSE_IS_POST_23_DOT_8: true
       KAWA_WITH_E2E_SUPPORT: true
+    env_file:
+      - path: kawa.server.env
+      - required: false
 
   clickhouse:
     image: "clickhouse/clickhouse-server:24.7.2-alpine"
@@ -50,9 +57,11 @@ services:
       - /tmp/clickhouse-server:/var/log/clickhouse-server
       - ./assets/users.d:/etc/clickhouse-server/users.d
       - ./assets/config.d:/etc/clickhouse-server/config.d
-
     ports:
       - 8123:8123
+    env_file:
+      - path: clickhouse.env
+      - required: false
 
   postgres:
     image: "postgres:13.12-alpine"
@@ -66,7 +75,21 @@ services:
       - 5432:5432
     secrets:
       - source: postgres-password
-        target: postgres-password   
+        target: postgres-password
+    env_file:
+      - path: postgres.env
+      - required: false
+
+  vector:
+    image: timberio/vector:nightly-debian
+    volumes:
+      - /home/max/projects/kawa-docker-install/vector.toml:/etc/vector/vector.toml
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - kawa-server
+    env_file:
+      - path: vector.env
+      - required: false
 
 volumes:
   pgdata:

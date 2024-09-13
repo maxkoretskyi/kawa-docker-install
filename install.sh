@@ -66,6 +66,28 @@ cp ./assets/docker-compose-template.yml $DOCKER_COMPOSE_FILE
 
 sed -i "s/\${branch}/$branch/g" $DOCKER_COMPOSE_FILE
 
+DefaultScriptRunnerRuntime="runc"
+# must be installed on the host machine https://gvisor.dev/docs/user_guide/install/
+# SecuredScriptRunnerRuntime="runsc"
+sed -i "s/\${script_runner_runtime}/$DefaultScriptRunnerRuntime/g" $DOCKER_COMPOSE_FILE
+
+# Configure runsc
+if [ "$interactive" == "true" ]; then
+  sudo apt-get update && \
+  sudo apt-get install -y \
+      apt-transport-https \
+      ca-certificates \
+      curl \
+      gnupg
+
+  curl -fsSL https://gvisor.dev/archive.key | sudo gpg --dearmor -o /usr/share/keyrings/gvisor-archive-keyring.gpg
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gvisor-archive-keyring.gpg] https://storage.googleapis.com/gvisor/releases release main" | sudo tee /etc/apt/sources.list.d/gvisor.list > /dev/null
+
+  sudo apt-get update && sudo apt-get install -y runsc
+else
+  echo "Skipping runsc installation"
+fi
+
 # Configure OpenID/Oauth2 Secret
 if [ "$interactive" == "true" ]; then
   read -r -p "Do you want to setup SSO (OpenID Connect/OAuth2) Y/[N] " SETUP_OAUTH2
@@ -96,30 +118,27 @@ if [ "$interactive" == "true" ]; then
     # Turns on HTTPS
     sed -i 's/_USE_HTTPS_/true/g' $DOCKER_COMPOSE_FILE
     sed -i 's|_KAWA_URL_|https://kawa-server:8080|g' $DOCKER_COMPOSE_FILE
-
   else
-    # Turns off HTTPS and remove unnecessary entries in docker compose file
-    sed -i 's/_USE_HTTPS_/false/g' $DOCKER_COMPOSE_FILE
-    sed -i 's|_KAWA_URL_|http://kawa-server:8080|g' $DOCKER_COMPOSE_FILE
-
-    sed -i '/.*KAWA_PATH_TO_SERVER_CERTIFICATE.*/d' $DOCKER_COMPOSE_FILE
-    sed -i '/.*KAWA_PATH_TO_SERVER_PRIVATE_KEY.*/d' $DOCKER_COMPOSE_FILE
-    sed -i '/\s*file: server\.key/d' $DOCKER_COMPOSE_FILE
-    sed -i '/\s*file: server\.crt/d' $DOCKER_COMPOSE_FILE
-    sed -i '/.*server-private-key.*/d' $DOCKER_COMPOSE_FILE
-    sed -i '/.*server-certificate.*/d' $DOCKER_COMPOSE_FILE
+    # Turns off HTTPS
+    USE_SSL="false"
   fi
 else
-    # Turns off HTTPS and remove unnecessary entries in docker compose file
-    sed -i 's/_USE_HTTPS_/false/g' $DOCKER_COMPOSE_FILE
-    sed -i 's|_KAWA_URL_|http://kawa-server:8080|g' $DOCKER_COMPOSE_FILE
+  # Not interactive, default to not using HTTPS
+  USE_SSL="false"
+fi
 
-    sed -i '/.*KAWA_PATH_TO_SERVER_CERTIFICATE.*/d' $DOCKER_COMPOSE_FILE
-    sed -i '/.*KAWA_PATH_TO_SERVER_PRIVATE_KEY.*/d' $DOCKER_COMPOSE_FILE
-    sed -i '/\s*file: server\.key/d' $DOCKER_COMPOSE_FILE
-    sed -i '/\s*file: server\.crt/d' $DOCKER_COMPOSE_FILE
-    sed -i '/.*server-private-key.*/d' $DOCKER_COMPOSE_FILE
-    sed -i '/.*server-certificate.*/d' $DOCKER_COMPOSE_FILE
+# If HTTPS is not used, clean up the Docker Compose file
+if [ "$USE_SSL" != "Y" ] && [ "$USE_SSL" != "y" ]; then
+  sed -i 's/_USE_HTTPS_/false/g' $DOCKER_COMPOSE_FILE
+  sed -i 's|_KAWA_URL_|http://kawa-server:8080|g' $DOCKER_COMPOSE_FILE
+
+  # Remove certificate-related lines from docker compose
+  sed -i '/.*KAWA_PATH_TO_SERVER_CERTIFICATE.*/d' $DOCKER_COMPOSE_FILE
+  sed -i '/.*KAWA_PATH_TO_SERVER_PRIVATE_KEY.*/d' $DOCKER_COMPOSE_FILE
+  sed -i '/\s*file: server\.key/d' $DOCKER_COMPOSE_FILE
+  sed -i '/\s*file: server\.crt/d' $DOCKER_COMPOSE_FILE
+  sed -i '/.*server-private-key.*/d' $DOCKER_COMPOSE_FILE
+  sed -i '/.*server-certificate.*/d' $DOCKER_COMPOSE_FILE
 fi
 
 # Configure the data directory
@@ -130,8 +149,12 @@ if [ "$interactive" == "true" ]; then
   mkdir -p "$MOUNT_DIRECTORY"/pgdata "$MOUNT_DIRECTORY"/clickhousedata "$MOUNT_DIRECTORY"/kawadata
   sed -i "s|_MOUNT_DIRECTORY_|$MOUNT_DIRECTORY|g" $DOCKER_COMPOSE_FILE
 else
-  MOUNT_DIRECTORY="./data"
-  mkdir -p $MOUNT_DIRECTORY/pgdata $MOUNT_DIRECTORY/clickhousedata $MOUNT_DIRECTORY/kawadata
+  MOUNT_DIRECTORY="$(pwd)/data"
+  # we expect postgres and clickhouse to create and manage the data directories inside,
+  # for that we add them to the group that owns the data directory and give it rwx permissions
+  chown :296608 $MOUNT_DIRECTORY
+  chmod g+w $MOUNT_DIRECTORY
+
   sed -i "s|_MOUNT_DIRECTORY_|$MOUNT_DIRECTORY|g" $DOCKER_COMPOSE_FILE
 fi
 

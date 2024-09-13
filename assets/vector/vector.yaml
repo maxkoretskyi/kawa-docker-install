@@ -1,0 +1,34 @@
+sources:
+  my_source_id:
+    type: docker_logs
+    include_containers:
+      - kawa-docker-install-kawa-server-1
+      - kawa-docker-install-clickhouse-1
+
+transforms:
+  add_service_name:
+    type: remap
+    inputs:
+      - my_source_id
+    source: |
+      if .container_name == "kawa-docker-install-kawa-server-1" {
+          .service_name = "KAWA_SERVER"
+      } else if .container_name == "kawa-docker-install-clickhouse-1" {
+           .service_name = "CLICKHOUSE"            
+      } else {
+          .service_name = "UNKNOWN"
+      }
+      
+      .message, err = "[" + .service_name + "] " + .message
+      if err != null {
+          log("Failed to update message: " + err, level: "warn")
+          .message = "[" + .service_name + "] " + " (Failed to append original message)"
+      }
+
+sinks:
+  out:
+    inputs:
+      - add_service_name
+    type: "console"
+    encoding:
+      codec: "text"
